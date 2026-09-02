@@ -1,0 +1,31 @@
+services:
+  # Backend Django Service
+  - type: web
+    name: hardware-backend
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      python manage.py migrate
+    startCommand: gunicorn hardware_api.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --threads 4 --worker-class gthread --max-requests 1000 --max-requests-jitter 50 --timeout 120 --preload
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: hardware_api.settings.prod
+      - key: DATABASE_URL
+        value: ${DATABASE_URL}
+      - key: SECRET_KEY
+        value: ${SECRET_KEY}
+      - key: ALLOWED_HOSTS
+        value: ${RENDER_EXTERNAL_HOSTNAME},.onrender.com,localhost,127.0.0.1
+
+  # Frontend Next.js Service
+  - type: web
+    name: hardware-frontend
+    env: node
+    buildCommand: npm run build
+    startCommand: npm start
+    staticPublishPath: .next
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://hardware-backend.onrender.com/api
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://hardware-frontend.onrender.com

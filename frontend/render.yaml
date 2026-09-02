@@ -1,0 +1,17 @@
+services:
+  # Frontend Service
+  - type: web
+    name: hardware-frontend
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        value: https://hardware-ecommerce-monorepo.onrender.com/api
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://your-project.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: your-supabase-anon-key

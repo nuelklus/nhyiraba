@@ -1,0 +1,81 @@
+services:
+  # Django Web Service
+  - type: web
+    name: hardware-ecommerce-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: gunicorn hardware_api.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --max-requests 1000 --max-requests-jitter 50
+    autoDeploy: true
+    
+    # Environment variables (these will be set in Render dashboard)
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: hardware_api.settings.prod
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: PORT
+        value: 10000
+      - key: DJANGO_SECRET_KEY
+        value: your-secret-key-here-change-this
+      - key: DJANGO_DEBUG
+        value: false
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com
+      - key: STATIC_ROOT
+        value: /opt/render/project/src/backend/staticfiles
+      - key: WHITENOISE_ROOT
+        value: /opt/render/project/src/backend/staticfiles
+      - key: WHITENOISE_AUTOREFRESH
+        value: false
+      - key: WHITENOISE_INDEX_FILE
+        value: false
+      - key: WHITENOISE_ALLOW_ALL_ORIGINS
+        value: false
+        
+    # Health check
+    healthCheckPath: /api/health/
+    healthCheckTimeout: 30
+    
+    # Static files - Let WhiteNoise handle them completely
+    # staticPublishPath: staticfiles  # Disabled - let WhiteNoise handle
+    # staticPublishGlob: "**/*"       # Disabled - let WhiteNoise handle
+    
+    # Media files - Serve uploaded product images
+    staticPublishPath:
+      - staticfiles
+      - media
+    
+    # Directories
+    buildFilter:
+      paths:
+        - hardware_api/**
+        - apps/**
+        - requirements.txt
+        - manage.py
+      ignoredPaths:
+        - frontend/**
+        - HWBackendenv/**
+        - __pycache__/**
+        - .git/**
+        - "*.pyc"
+
+  # PostgreSQL Database (if not using Supabase)
+  # - type: pserv
+  #   name: hardware-ecommerce-db
+  #   plan: free
+  #   databaseName: hardware_ecommerce
+  #   user: django_user
+
+# Global environment variables (set in Render dashboard)
+# DATABASE_URL=postgresql://username:password@host:port/database
+# DJANGO_SECRET_KEY=your-secret-key
+# DJANGO_DEBUG=False
+# DJANGO_ALLOWED_HOSTS=your-app-name.onrender.com
+# EMAIL_HOST=smtp.gmail.com
+# EMAIL_PORT=587
+# EMAIL_USE_TLS=True
+# EMAIL_HOST_USER=your-gmail@gmail.com
+# EMAIL_HOST_PASSWORD=your-app-password
+# DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+# ADMIN_EMAIL=admin@yourdomain.com

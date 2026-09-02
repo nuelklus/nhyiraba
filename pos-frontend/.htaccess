@@ -1,0 +1,45 @@
+# Enable Rewrite Engine
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Handle Next.js static export routes
+  # /pos -> pos.html
+  # /login -> login.html
+  # / -> index.html
+  RewriteCond %{REQUEST_URI} ^/pos/?$
+  RewriteRule ^pos/?$ pos.html [L]
+  
+  RewriteCond %{REQUEST_URI} ^/login/?$
+  RewriteRule ^login/?$ login.html [L]
+  
+  RewriteCond %{REQUEST_URI} ^/$
+  RewriteRule ^$ index.html [L]
+
+  # Handle static assets (CSS, JS, images, etc.)
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Handle 404
+  RewriteRule ^(.*)$ _not-found.html [L]
+</IfModule>
+
+# Set default document
+DirectoryIndex index.html
+
+# Enable compression
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript
+</IfModule>
+
+# Set cache headers for static assets
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 year"
+  ExpiresByType image/png "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+  ExpiresByType image/x-icon "access plus 1 year"
+</IfModule>

@@ -1,0 +1,26 @@
+﻿# Hardware E-commerce Project Rules (Monorepo)
+
+## Stack (Non-Negotiable)
+- Frontend: Next.js (App Router)
+- Backend: Django REST Framework (DRF)
+- Database: Supabase (PostgreSQL)
+
+## Regional Defaults (Non-Negotiable)
+- Default currency: GHS
+- Default phone country code: +233
+
+## Architecture Rules
+- Use a Service Layer pattern.
+- Place business logic in services.py (or service modules), NOT in views.py.
+- Views should only: validate input, call services, serialize responses.
+
+## Domain Requirements
+- Must include a JobSite model for deliveries.
+- Must support a Pro-Contractor user role for bulk pricing.
+
+## Repo Structure
+- backend/: Django + DRF project
+- frontend/: Next.js app
+
+## Notes
+- Do not introduce alternative stacks (e.g., FastAPI, Express) without explicit approval.
