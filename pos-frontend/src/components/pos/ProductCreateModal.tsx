@@ -20,6 +20,9 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
     category: '',
     brand: '',
     expiry_date: '',
+    base_unit: 'piece',
+    carton_conversion: '',
+    carton_count: '',
   });
   const [categories, setCategories] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
@@ -122,6 +125,37 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
       backendFormData.append('store_id', posApiClient.getStoreId());
       backendFormData.append('is_active', 'true');
       backendFormData.append('track_stock', 'true');
+      backendFormData.append('base_unit', formData.base_unit);
+      const cartonConversion = Number(formData.carton_conversion);
+      const cartonCount = Number(formData.carton_count);
+      const basePrice = Number(formData.price);
+      if (cartonConversion > 0 && cartonCount > 0) {
+        backendFormData.set('stock_quantity', String(cartonConversion * cartonCount));
+      }
+
+      const units = [
+        {
+          name: formData.base_unit === 'piece' ? 'Piece' : formData.base_unit,
+          abbreviation: formData.base_unit,
+          unit_type: formData.base_unit,
+          conversion_to_base: '1',
+          selling_price: formData.price,
+          is_base: true,
+          active: true,
+        },
+      ];
+      if (cartonConversion > 0 && basePrice >= 0) {
+        units.push({
+          name: 'Carton',
+          abbreviation: 'ctn',
+          unit_type: 'carton',
+          conversion_to_base: String(cartonConversion),
+          selling_price: String(cartonConversion * basePrice),
+          is_base: false,
+          active: true,
+        });
+      }
+      backendFormData.append('units', JSON.stringify(units));
       
       if (formData.barcode) backendFormData.append('barcode', formData.barcode);
       if (formData.description) backendFormData.append('description', formData.description);
@@ -129,6 +163,9 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
       
       // Add image file if provided
       if (imageFile) {
+        if (!(imageFile instanceof File)) {
+          throw new Error('The selected image is invalid. Please choose the image again.');
+        }
         setIsUploadingImage(true);
         backendFormData.append('image', imageFile);
       }
@@ -138,7 +175,11 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
       onClose();
     } catch (err: any) {
       console.error('❌ Failed to create product:', err);
-      setError(err.response?.data?.error || 'Failed to create product');
+      const responseData = err.response?.data;
+      const imageError = Array.isArray(responseData?.image)
+        ? responseData.image.join(', ')
+        : responseData?.image;
+      setError(imageError || responseData?.error || 'Failed to create product');
     } finally {
       setIsSubmitting(false);
       setIsUploadingImage(false);
@@ -263,7 +304,7 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Price (GHS) *
+                    Price per {formData.base_unit} (GHS) *
                   </label>
                   <input
                     type="number"
@@ -278,9 +319,80 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
                   />
                 </div>
 
+                <div className="border-t border-gray-200 pt-4 space-y-4">
+                  <h4 className="font-medium text-gray-900">Selling Units</h4>
+                  <p className="text-xs text-gray-500">
+                    Stock is stored in the base unit. Add a carton option if this product is also sold by carton.
+                  </p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Base Unit *
+                    </label>
+                    <select
+                      name="base_unit"
+                      value={formData.base_unit}
+                      onChange={handleChange}
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                    >
+                      {['piece', 'pack', 'box', 'carton', 'dozen', 'gram', 'kg', 'litre', 'metre', 'bag', 'sack', 'roll', 'set', 'pair', 'other'].map((unit) => (
+                        <option key={unit} value={unit}>{unit}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Carton contains
+                      </label>
+                      <input
+                        type="number"
+                        name="carton_conversion"
+                        value={formData.carton_conversion}
+                        onChange={handleChange}
+                        min="0.000001"
+                        step="0.000001"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                        placeholder="e.g. 24 pieces"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Number of cartons
+                      </label>
+                      <input
+                        type="number"
+                        name="carton_count"
+                        value={formData.carton_count}
+                        onChange={handleChange}
+                        min="0"
+                        step="1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                        placeholder="e.g. 12"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-xs text-gray-600">
+                      <p>
+                        Calculated stock:{' '}
+                        <strong>
+                          {(Number(formData.carton_conversion) > 0 && Number(formData.carton_count) > 0
+                            ? Number(formData.carton_conversion) * Number(formData.carton_count)
+                            : Number(formData.stock_quantity) || 0).toLocaleString()} {formData.base_unit}
+                        </strong>
+                      </p>
+                      <p>
+                        Calculated carton price:{' '}
+                        <strong>
+                          {(Number(formData.carton_conversion) * Number(formData.price || 0)).toFixed(2)}
+                        </strong>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Initial Stock *
+                    Initial Stock ({formData.base_unit}) *
                   </label>
                   <input
                     type="number"
@@ -292,6 +404,9 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-base"
                     placeholder="0"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Enter cartons above to calculate this automatically.
+                  </p>
                 </div>
               </div>
 

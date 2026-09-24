@@ -2,7 +2,7 @@
 
 export const env = {
   // Backend API URL
-  NEXT_PUBLIC_POS_API_URL: process.env.NEXT_PUBLIC_POS_API_URL || 'https://nexlogs-pos.onrender.com/api/pos',
+  NEXT_PUBLIC_POS_API_URL: process.env.NEXT_PUBLIC_POS_API_URL || 'http://127.0.0.1:8000/api/',
 
   // WebSocket URL
   NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'wss://hardware-ecommerce-monorepo.onrender.com/ws/stock/',

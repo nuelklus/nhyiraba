@@ -16,7 +16,7 @@ class AuthService:
     @transaction.atomic
     def register_user(*, username: str, password: str, email: str = "", 
                      role: str = "CUSTOMER", phone_number: str = "", 
-                     staff_role: str = "", organization=None) -> Tuple[User, Dict[str, str]]:
+                     staff_role: str = "", organization=None, branch=None) -> Tuple[User, Dict[str, str]]:
         """
         Register a new user with optional Pro-Contractor or Staff role
         
@@ -50,6 +50,11 @@ class AuthService:
         # Validate staff_role is required when role is STAFF
         if role == UserRole.STAFF and not staff_role:
             raise ValueError("staff_role is required when role is STAFF")
+        if branch:
+            if not organization or branch.organization_id != organization.pk:
+                raise ValueError("Branch must belong to the user's organization")
+            if not branch.is_active:
+                raise ValueError("Users cannot be assigned to an inactive branch")
         
         # Create user
         user = User(
@@ -59,6 +64,7 @@ class AuthService:
             phone_number=phone_number,
             staff_role=staff_role if role == UserRole.STAFF else None,
             organization=organization
+            , branch=branch
         )
         user.set_password(password)
         

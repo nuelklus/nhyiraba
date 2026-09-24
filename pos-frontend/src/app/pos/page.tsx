@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { posApiClient, type Product, type SubscriptionInfo as SubscriptionInfoType } from '@/lib/pos-api';
+import { posApiClient, type Product, type ProductUnit, type SubscriptionInfo as SubscriptionInfoType } from '@/lib/pos-api';
 // WebSocket imports removed - single terminal mode
 import { formatCurrency, formatStockQuantity, getStockStatusColor, getStockStatusText } from '@/lib/utils';
 import { BarcodeScanner } from '@/components/barcode/BarcodeScanner';
@@ -19,6 +19,7 @@ import { ExpiryAlerts } from '@/components/pos/ExpiryAlerts';
 import { ProductCreateModal } from '@/components/pos/ProductCreateModal';
 import SalesSummary from '@/components/pos/SalesSummary';
 import { SubscriptionInfo } from '@/components/pos/SubscriptionInfo';
+import BusinessReport from '@/components/pos/BusinessReport';
 
 export default function POSPage() {
   const router = useRouter();
@@ -127,9 +128,9 @@ export default function POSPage() {
     }
   };
 
-  const handleAddToCart = useCallback((product: Product) => {
+  const handleAddToCart = useCallback((product: Product, unit?: ProductUnit) => {
     console.log('🛒 Adding to cart:', product.name);
-    shoppingCart.addItem(product, 1);
+    shoppingCart.addItem(product, 1, unit);
     const updatedItems = shoppingCart.getItems();
     console.log('🛒 Cart items after add:', updatedItems);
     setCartItems(updatedItems);
@@ -204,7 +205,8 @@ export default function POSPage() {
         quantity: newQuantity,
         change_amount: changeAmount,
         store_id: posApiClient.getStoreId(),
-        device_id: posApiClient.getDeviceId()
+        device_id: posApiClient.getDeviceId(),
+        sync_version: products.find((product) => product.id === productId)?.stock_sync_version ?? 0
       });
 
       console.log('✅ Stock update successful:', response);
@@ -225,7 +227,7 @@ export default function POSPage() {
 
     } catch (error) {
       console.error('❌ Failed to update stock:', error);
-      // Could show error message to user
+      throw error;
     }
   }, []);
 
@@ -357,6 +359,11 @@ export default function POSPage() {
               <SalesSummary refreshKey={salesSummaryKey} />
             </div>
           )}
+          {posApiClient.canViewBusinessReport() && (
+            <div className="p-2 sm:p-4">
+              <BusinessReport refreshKey={salesSummaryKey} />
+            </div>
+          )}
 
           {/* Product Grid */}
           <div className="flex-1 p-2 sm:p-4 overflow-auto">
@@ -372,7 +379,7 @@ export default function POSPage() {
         </div>
 
         {/* Right Panel - Shopping Cart */}
-        <div className={`fixed inset-x-0 bottom-0 lg:sticky lg:top-16 lg:inset-auto lg:w-96 bg-white border-t lg:border-l border-gray-200 flex flex-col z-50 transition-all duration-300 ease-in-out ${isMobilePanelCollapsed ? 'h-16' : 'h-[70vh]'} lg:h-[calc(100vh-4rem)]`}>
+        <div className={`fixed inset-x-0 bottom-0 lg:sticky lg:top-16 lg:inset-auto lg:w-96 bg-white border-t lg:border-l border-gray-200 flex flex-col min-h-0 z-50 transition-all duration-300 ease-in-out ${isMobilePanelCollapsed ? 'h-16' : 'h-[70vh]'} lg:h-[calc(100vh-4rem)]`}>
           {/* Mobile Handle for Drag Gesture */}
           <div className="lg:hidden flex justify-center py-2 border-b border-gray-200">
             <div className="w-12 h-1 bg-gray-300 rounded-full"></div>
@@ -425,16 +432,16 @@ export default function POSPage() {
           </div>
 
           {/* Panel Content */}
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 min-h-0 flex flex-col">
             {rightPanelView === 'cart' ? (
               /* Cart View */
               cartItems.length > 0 ? (
                 <>
                   {/* Cart Items */}
-                  <div className="flex-1 overflow-y-auto p-2 sm:p-4">
+                  <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-4">
                     <div className="space-y-3 sm:space-y-4">
                       {cartItems.map((item) => (
-                        <div key={item.product.id} className="flex items-center space-x-2 sm:space-x-4 p-2 sm:p-3 bg-gray-50 rounded-lg">
+                        <div key={`${item.product.id}-${item.productUnit?.id ?? 'base'}`} className="flex items-center space-x-2 sm:space-x-4 p-2 sm:p-3 bg-gray-50 rounded-lg">
                           {/* Product Image */}
                           {item.product.image_url ? (
                             <img
@@ -453,33 +460,69 @@ export default function POSPage() {
                           <div className="flex-1 min-w-0">
                             <h4 className="font-medium text-gray-900 text-xs sm:text-sm truncate">{item.product.name}</h4>
                             <p className="text-xs text-gray-500">{item.product.sku}</p>
+                            <p className="text-xs font-medium text-blue-700">
+                              Sold as: {item.productUnit?.name || item.product.base_unit}
+                            </p>
                             <div className="flex items-center justify-between mt-1 sm:mt-2">
                               <span className="text-sm font-medium text-green-600">
-                                {formatCurrency(parseFloat(item.product.price))}
+                                {formatCurrency(parseFloat(item.productUnit?.selling_price || item.product.price))}
                               </span>
                               {/* Quantity Controls */}
-                              <div className="flex items-center space-x-2">
+                              <div className="flex items-center space-x-1">
                                 <button
                                   onClick={() => {
-                                    if (item.quantity > 1) {
-                                      shoppingCart.updateQuantity(item.product.id, item.quantity - 1);
+                                    const step = ['kg', 'gram', 'g', 'litre', 'liter', 'ml', 'metre'].includes(
+                                      item.productUnit?.unit_type || item.product.base_unit
+                                    ) ? 0.001 : 1;
+                                    if (item.quantity > step) {
+                                      shoppingCart.updateQuantity(
+                                        item.product.id,
+                                        Math.round((item.quantity - step) * 1000) / 1000,
+                                        item.productUnit?.id
+                                      );
                                       setCartItems(shoppingCart.getItems());
                                     }
                                   }}
                                   className="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center"
-                                  disabled={item.quantity <= 1}
+                                  aria-label={`Decrease ${item.product.name} quantity`}
                                 >
                                   -
                                 </button>
-                                <span className="text-sm font-medium w-8 text-center">
-                                  {item.quantity}
-                                </span>
+                                <input
+                                  type="number"
+                                  min="0.001"
+                                  step={['kg', 'gram', 'g', 'litre', 'liter', 'ml', 'metre'].includes(
+                                    item.productUnit?.unit_type || item.product.base_unit
+                                  ) ? '0.001' : '1'}
+                                  value={item.quantity}
+                                  onChange={(event) => {
+                                    const quantity = Number(event.target.value);
+                                    if (Number.isFinite(quantity) && quantity > 0) {
+                                      shoppingCart.updateQuantity(
+                                        item.product.id,
+                                        Math.round(quantity * 1000) / 1000,
+                                        item.productUnit?.id
+                                      );
+                                      setCartItems(shoppingCart.getItems());
+                                    }
+                                  }}
+                                  className="w-16 h-7 rounded border border-gray-300 text-center text-sm font-medium text-gray-900"
+                                  aria-label={`${item.product.name} quantity`}
+                                />
                                 <button
                                   onClick={() => {
-                                    shoppingCart.updateQuantity(item.product.id, item.quantity + 1);
+                                    const step = ['kg', 'gram', 'g', 'litre', 'liter', 'ml', 'metre'].includes(
+                                      item.productUnit?.unit_type || item.product.base_unit
+                                    ) ? 0.001 : 1;
+                                    shoppingCart.updateQuantity(
+                                      item.product.id,
+                                      Math.round((item.quantity + step) * 1000) / 1000,
+                                      item.productUnit?.id
+                                    );
                                     setCartItems(shoppingCart.getItems());
                                   }}
                                   className="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center"
+                                  aria-label={`Increase ${item.product.name} quantity`}
                                 >
                                   +
                                 </button>
@@ -490,11 +533,11 @@ export default function POSPage() {
                           {/* Item Total and Remove */}
                           <div className="text-right">
                             <span className="font-medium text-gray-900 block mb-2">
-                              {formatCurrency(parseFloat(item.product.price) * item.quantity)}
+                              {formatCurrency(parseFloat(item.productUnit?.selling_price || item.product.price) * item.quantity)}
                             </span>
                             <button
                               onClick={() => {
-                                shoppingCart.removeItem(item.product.id);
+                                shoppingCart.removeItem(item.product.id, item.productUnit?.id);
                                 setCartItems(shoppingCart.getItems());
                               }}
                               className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-600 text-xs rounded"
@@ -508,19 +551,19 @@ export default function POSPage() {
                   </div>
 
                   {/* Cart Footer */}
-                  <div className="p-3 sm:p-4 border-t border-gray-200 bg-gray-50">
-                    <div className="space-y-2 mb-3 sm:mb-4">
-                      <div className="flex justify-between text-sm">
-                        <span>Subtotal:</span>
-                        <span>{formatCurrency(shoppingCart.getTotals().subtotal)}</span>
+                  <div className="flex-shrink-0 p-3 sm:p-4 border-t-2 border-gray-300 bg-white">
+                    <div className="space-y-2 mb-3 sm:mb-4 text-gray-900">
+                      <div className="flex justify-between text-sm font-medium">
+                        <span className="text-gray-700">Subtotal:</span>
+                        <span className="font-semibold text-gray-900">{formatCurrency(shoppingCart.getTotals().subtotal)}</span>
                       </div>
-                      <div className="flex justify-between text-sm">
-                        <span>Tax (12%):</span>
-                        <span>{formatCurrency(shoppingCart.getTotals().tax)}</span>
+                      <div className="flex justify-between text-sm font-medium">
+                        <span className="text-gray-700">Tax (12%):</span>
+                        <span className="font-semibold text-gray-900">{formatCurrency(shoppingCart.getTotals().tax)}</span>
                       </div>
-                      <div className="flex justify-between font-semibold text-lg border-t pt-2">
-                        <span>Total:</span>
-                        <span className="text-green-600">{formatCurrency(shoppingCart.getTotals().total)}</span>
+                      <div className="flex justify-between font-bold text-lg border-t-2 border-gray-300 pt-2">
+                        <span className="text-gray-900">Total:</span>
+                        <span className="text-green-700">{formatCurrency(shoppingCart.getTotals().total)}</span>
                       </div>
                     </div>
                     

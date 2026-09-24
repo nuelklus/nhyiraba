@@ -8,12 +8,25 @@ class POSProductSerializer(ProductListSerializer):
     """Optimized serializer for POS operations"""
     
     # POS-specific fields
+    stock_quantity = serializers.DecimalField(
+        source='branch_stock_quantity', max_digits=12, decimal_places=3, read_only=True
+    )
     pos_stock_quantity = serializers.IntegerField(read_only=True)
     last_pos_sync = serializers.DateTimeField(read_only=True)
     pos_store_id = serializers.CharField(read_only=True)
     stock_sync_version = serializers.IntegerField(read_only=True)
     stock_update_source = serializers.CharField(read_only=True)
     stock_updated_by = serializers.CharField(read_only=True)
+
+    def get_stock_status(self, obj):
+        if not obj.track_stock:
+            return {'status': 'available', 'message': 'Available'}
+        quantity = getattr(obj, 'branch_stock_quantity', obj.stock_quantity)
+        if quantity > obj.low_stock_threshold:
+            return {'status': 'in_stock', 'message': 'In Stock'}
+        if quantity > 0:
+            return {'status': 'low_stock', 'message': 'Low Stock'}
+        return {'status': 'out_of_stock', 'message': 'Out of Stock'}
     
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + [
@@ -28,9 +41,9 @@ class POSProductSerializer(ProductListSerializer):
 
 class StockUpdateSerializer(serializers.Serializer):
     """Serializer for stock update requests from POS"""
-    product_id = serializers.UUIDField()
-    quantity = serializers.IntegerField(min_value=0)
-    change_amount = serializers.IntegerField(required=False, allow_null=True)
+    product_id = serializers.IntegerField(min_value=1)
+    quantity = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=0)
+    change_amount = serializers.DecimalField(max_digits=12, decimal_places=3, required=False, allow_null=True)
     store_id = serializers.CharField(default='main', max_length=50)
     device_id = serializers.CharField(required=False, allow_null=True, max_length=100)
     sync_version = serializers.IntegerField(required=False, allow_null=True)
@@ -113,6 +126,10 @@ class TransactionItemSerializer(serializers.ModelSerializer):
             'transaction',
             'product',
             'quantity',
+            'product_unit',
+            'base_quantity',
+            'unit_name',
+            'base_unit',
             'unit_price',
             'total_price',
             'product_name',
@@ -166,7 +183,7 @@ class CreateTransactionSerializer(serializers.Serializer):
     total_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
     amount_paid = serializers.DecimalField(max_digits=10, decimal_places=2)
     notes = serializers.CharField(required=False, allow_blank=True)
-    store_id = serializers.CharField(max_length=50)
+    store_id = serializers.CharField(max_length=50, required=False)
     device_id = serializers.CharField(required=False, allow_blank=True, max_length=100)
 
 

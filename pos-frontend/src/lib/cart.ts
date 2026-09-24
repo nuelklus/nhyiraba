@@ -1,7 +1,8 @@
-import { type Product } from './pos-api';
+import { type Product, type ProductUnit } from './pos-api';
 
 export interface CartItem {
   product: Product;
+  productUnit?: ProductUnit;
   quantity: number;
   addedAt: string;
 }
@@ -18,9 +19,11 @@ export class ShoppingCart {
   private taxRate: number = 0; // 0% tax rate
 
   // Add item to cart
-  addItem(product: Product, quantity: number = 1): void {
+  addItem(product: Product, quantity: number = 1, productUnit?: ProductUnit): void {
     console.log('🛒 ShoppingCart.addItem called:', product.name, quantity);
-    const existingItem = this.items.find(item => item.product.id === product.id);
+    const selectedUnit = productUnit || product.units?.find(unit => unit.is_base) || product.units?.[0];
+    const existingItem = this.items.find(item => item.product.id === product.id &&
+      item.productUnit?.id === selectedUnit?.id);
     
     if (existingItem) {
       existingItem.quantity += quantity;
@@ -28,6 +31,7 @@ export class ShoppingCart {
     } else {
       this.items.push({
         product,
+        productUnit: selectedUnit,
         quantity,
         addedAt: new Date().toISOString()
       });
@@ -38,13 +42,15 @@ export class ShoppingCart {
   }
 
   // Remove item from cart
-  removeItem(productId: string): void {
-    this.items = this.items.filter(item => item.product.id !== productId);
+  removeItem(productId: string, productUnitId?: number): void {
+    this.items = this.items.filter(item => !(item.product.id === productId &&
+      item.productUnit?.id === productUnitId));
   }
 
   // Update item quantity
-  updateQuantity(productId: string, quantity: number): void {
-    const item = this.items.find(item => item.product.id === productId);
+  updateQuantity(productId: string, quantity: number, productUnitId?: number): void {
+    const item = this.items.find(item => item.product.id === productId &&
+      item.productUnit?.id === productUnitId);
     if (item) {
       if (quantity <= 0) {
         this.removeItem(productId);
@@ -68,7 +74,7 @@ export class ShoppingCart {
   // Calculate totals
   getTotals(): CartTotals {
     const subtotal = this.items.reduce((sum, item) => {
-      return sum + (parseFloat(item.product.price) * item.quantity);
+      return sum + (parseFloat(item.productUnit?.selling_price || item.product.price) * item.quantity);
     }, 0);
 
     const tax = subtotal * this.taxRate;
@@ -110,7 +116,8 @@ export class ShoppingCart {
 
   // Calculate total value of specific item
   getItemTotal(item: CartItem): number {
-    return Math.round((parseFloat(item.product.price) * item.quantity) * 100) / 100;
+    const price = item.productUnit?.selling_price || item.product.price;
+    return Math.round((parseFloat(price) * item.quantity) * 100) / 100;
   }
 }
 

@@ -45,6 +45,8 @@ export interface Product {
   };
   image_url?: string;
   is_active: boolean;
+  base_unit: string;
+  units: ProductUnit[];
   expiry_date?: string;
   expiry_status?: {
     status: string;
@@ -52,6 +54,17 @@ export interface Product {
     days_remaining?: number;
     days_overdue?: number;
   };
+}
+
+export interface ProductUnit {
+  id: number;
+  name: string;
+  abbreviation?: string;
+  unit_type: string;
+  conversion_to_base: string;
+  selling_price?: string | null;
+  active: boolean;
+  is_base: boolean;
 }
 
 export interface StockUpdateRequest {
@@ -188,6 +201,10 @@ class POSApiClient {
     // Request interceptor
     this.axiosInstance.interceptors.request.use(
       (config) => {
+        if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+          delete config.headers['Content-Type'];
+        }
+
         const token = localStorage.getItem('pos_access_token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
@@ -376,6 +393,17 @@ class POSApiClient {
     return staffRole === 'MANAGER' || staffRole === 'ADMIN';
   }
 
+  canViewBusinessReport(): boolean {
+    const userInfo = localStorage.getItem('pos_user_info');
+    if (!userInfo) return false;
+    try {
+      const user = JSON.parse(userInfo);
+      return user.role === 'STAFF' && ['ADMIN', 'MANAGER'].includes(user.staff_role);
+    } catch {
+      return false;
+    }
+  }
+
   // Product methods
   async getProducts(params?: {
     store_id?: string;
@@ -407,14 +435,8 @@ class POSApiClient {
   }
 
   async createProduct(productData: any): Promise<Product> {
-    // If productData is FormData, don't set Content-Type header (let browser set it with boundary)
-    const isFormData = productData instanceof FormData;
-    
-    const response = await this.axiosInstance.post('/products/create_product/', productData, {
-      headers: isFormData ? {
-        'Content-Type': 'multipart/form-data',
-      } : undefined,
-    });
+    // Let Axios/browser set the multipart boundary for FormData.
+    const response = await this.axiosInstance.post('/products/create_product/', productData);
     return response.data;
   }
 
@@ -521,6 +543,13 @@ class POSApiClient {
 
   async getSalesSummary(dateRange: string = 'today', storeId?: string): Promise<any> {
     const response = await this.axiosInstance.get('/sales-summary/', {
+      params: { date_range: dateRange, store_id: storeId }
+    });
+    return response.data;
+  }
+
+  async getBusinessReport(dateRange: string = 'today', storeId?: string): Promise<any> {
+    const response = await this.axiosInstance.get('/business-report/', {
       params: { date_range: dateRange, store_id: storeId }
     });
     return response.data;

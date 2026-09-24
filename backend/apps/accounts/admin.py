@@ -14,6 +14,7 @@ class CustomUserAdmin(UserAdmin):
                     "phone_number",
                     "staff_role",
                     "organization",
+                    "branch",
                 )
             },
         ),
@@ -27,9 +28,10 @@ class CustomUserAdmin(UserAdmin):
                     "phone_number",
                     "staff_role",
                     "organization",
+                    "branch",
                 )
             },
         ),
     )
-    list_display = ("username", "email", "role", "staff_role", "organization", "is_active")
-    list_filter = ("role", "staff_role", "organization", "is_active")
+    list_display = ("username", "email", "role", "staff_role", "organization", "branch", "store_id", "is_active")
+    list_filter = ("role", "staff_role", "organization", "branch", "is_active")

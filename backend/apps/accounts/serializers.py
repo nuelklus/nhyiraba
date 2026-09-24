@@ -3,15 +3,17 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from django.core.exceptions import ValidationError
 from .models import UserRole, StaffRole
+from apps.subscriptions.models import Branch
 
 User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     """Basic user serializer for profile display"""
+    branch_id = serializers.IntegerField(source="branch.pk", read_only=True, allow_null=True)
     
     class Meta:
         model = User
-        fields = ["id", "username", "email", "role", "phone_number", "date_joined", "organization_id"]
+        fields = ["id", "username", "email", "role", "phone_number", "date_joined", "organization_id", "branch_id", "store_id"]
         read_only_fields = ["id", "date_joined"]
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -19,10 +21,11 @@ class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True)
     staff_role = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), required=False, allow_null=True)
     
     class Meta:
         model = User
-        fields = ["username", "email", "password", "password_confirm", "role", "phone_number", "staff_role"]
+        fields = ["username", "email", "password", "password_confirm", "role", "phone_number", "staff_role", "branch"]
     
     def validate_phone_number(self, value):
         """Format and validate phone number to +233 format"""
@@ -85,6 +88,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         
         if role == UserRole.STAFF and not staff_role:
             raise serializers.ValidationError("staff_role is required when role is STAFF")
+        branch = attrs.get("branch")
+        if branch and not branch.is_active:
+            raise serializers.ValidationError({"branch": "Users cannot be assigned to an inactive branch."})
         
         return attrs
     

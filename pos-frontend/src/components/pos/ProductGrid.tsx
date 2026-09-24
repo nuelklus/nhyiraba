@@ -2,8 +2,8 @@
 
 import { useState, memo, useCallback } from 'react';
 import { Package, Search, AlertTriangle } from 'lucide-react';
-import { type Product } from '@/lib/pos-api';
-import { formatCurrency, formatStockQuantity, getStockStatusColor, getStockStatusText } from '@/lib/utils';
+import { type Product, type ProductUnit } from '@/lib/pos-api';
+import { formatCurrency, formatQuantity, formatStockQuantity, getStockStatusColor, getStockStatusText } from '@/lib/utils';
 import { StockUpdateModal } from './StockUpdateModal';
 
 interface ProductGridProps {
@@ -11,13 +11,14 @@ interface ProductGridProps {
   selectedProduct: Product | null;
   onProductSelect: (product: Product) => void;
   onStockUpdate: (productId: string, newQuantity: number, changeAmount: number) => void;
-  onAddToCart?: (product: Product) => void;
+  onAddToCart?: (product: Product, unit?: ProductUnit) => void;
   canUpdateStock?: boolean;
 }
 
 export function ProductGrid({ products, selectedProduct, onProductSelect, onStockUpdate, onAddToCart, canUpdateStock = true }: ProductGridProps) {
   const [showStockModal, setShowStockModal] = useState(false);
   const [stockUpdateProduct, setStockUpdateProduct] = useState<Product | null>(null);
+  const [selectedUnits, setSelectedUnits] = useState<Record<string, number>>({});
 
   const handleStockUpdateClick = useCallback((product: Product) => {
     setStockUpdateProduct(product);
@@ -47,6 +48,9 @@ export function ProductGrid({ products, selectedProduct, onProductSelect, onStoc
           const isSelected = selectedProduct?.id === product.id;
           const stockStatus = getStockStatusText(product.stock_quantity);
           const stockStatusColor = getStockStatusColor(product.stock_quantity);
+          const activeUnits = product.units?.filter(unit => unit.active) || [];
+          const selectedUnit = activeUnits.find(unit => unit.id === selectedUnits[product.id]) ||
+            activeUnits.find(unit => unit.is_base) || activeUnits[0];
           
           return (
             <div
@@ -94,61 +98,58 @@ export function ProductGrid({ products, selectedProduct, onProductSelect, onStoc
                   {product.name}
                 </h3>
                 
-                <div className="text-sm text-gray-500 mb-2">
-                  SKU: {product.sku}
-                  {product.barcode && (
-                    <span className="ml-2 font-mono text-xs">
-                      | {product.barcode}
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">
+                      {selectedUnit?.name || product.base_unit}
+                    </p>
+                    <div className="text-lg font-bold text-gray-900">
+                      {formatCurrency(selectedUnit?.selling_price || product.price)}
+                    </div>
+                  </div>
+                  <div className="text-right text-sm text-gray-600">
+                    <span className="block text-xs text-gray-500">Stock</span>
+                    <span className="font-medium">
+                      {formatQuantity(product.stock_quantity)} {product.base_unit}
                     </span>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-lg font-bold text-gray-900">
-                    {formatCurrency(product.price)}
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-medium">{formatStockQuantity(product.stock_quantity)}</span>
                   </div>
                 </div>
 
-                {/* Category and Brand */}
-                <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                  <span>{product.category.name}</span>
-                  <span>{product.brand.name}</span>
-                </div>
+                {activeUnits.length > 1 && (
+                  <label className="block mb-3 text-xs font-medium text-gray-700">
+                    Sell as
+                    <select
+                      value={selectedUnit?.id ?? ''}
+                      onChange={(e) => setSelectedUnits(current => ({
+                        ...current,
+                        [product.id]: Number(e.target.value),
+                      }))}
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-1 w-full rounded border-2 border-blue-300 bg-blue-50 px-2 py-2 text-sm text-gray-900"
+                    >
+                      {activeUnits.map(unit => (
+                        <option key={unit.id} value={unit.id}>
+                          {unit.name}{unit.selling_price ? ` - ${formatCurrency(unit.selling_price)}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
 
                 {/* Action Buttons */}
                 <div className="space-y-2">
-                  {/* Primary Actions Row */}
-                  <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                  {onAddToCart && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        onProductSelect(product);
+                        onAddToCart(product, selectedUnit);
                       }}
-                      className={`flex-1 px-3 py-2 sm:py-2 text-xs sm:text-xs font-medium rounded-md transition-colors ${
-                        isSelected
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                      className="w-full px-3 py-2 sm:py-2 text-xs sm:text-sm font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      disabled={product.stock_quantity <= 0}
                     >
-                      {isSelected ? 'Selected' : 'Select'}
+                      Add to Cart
                     </button>
-                    
-                    {onAddToCart && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAddToCart(product);
-                        }}
-                        className="flex-1 px-3 py-2 sm:py-2 text-xs sm:text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-                        disabled={product.stock_quantity <= 0}
-                      >
-                        Add to Cart
-                      </button>
-                    )}
-                  </div>
+                  )}
                   
                   {/* Secondary Action - Update Stock (hidden for cashiers) */}
                   {canUpdateStock && (

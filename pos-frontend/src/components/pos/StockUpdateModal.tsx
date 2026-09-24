@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { X, Plus, Minus, TrendingUp, TrendingDown } from 'lucide-react';
 import { type Product } from '@/lib/pos-api';
 import { posApiClient } from '@/lib/pos-api';
-import { formatCurrency, formatStockQuantity, getChangeAmountColor, getChangeAmountText } from '@/lib/utils';
+import { formatCurrency, formatQuantity, formatStockQuantity, getChangeAmountColor, getChangeAmountText } from '@/lib/utils';
 
 interface StockUpdateModalProps {
   product: Product;
@@ -13,11 +13,12 @@ interface StockUpdateModalProps {
 }
 
 export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModalProps) {
-  const [newQuantity, setNewQuantity] = useState(product.stock_quantity);
+  const [newQuantity, setNewQuantity] = useState(Number(product.stock_quantity));
   const [adjustment, setAdjustment] = useState(0);
   const [updateReason, setUpdateReason] = useState('');
   const [expiryDate, setExpiryDate] = useState(product.expiry_date || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const changeAmount = newQuantity - product.stock_quantity;
   const hasExpiryDateChanged = expiryDate !== (product.expiry_date || '');
@@ -30,13 +31,14 @@ export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModa
   };
 
   const handleDirectInput = (value: string) => {
-    const qty = parseInt(value) || 0;
+    const qty = parseFloat(value) || 0;
     const validQty = Math.max(0, qty);
     setNewQuantity(validQty);
     setAdjustment(validQty - product.stock_quantity);
   };
 
   const handleSubmit = async () => {
+    setError('');
     setIsSubmitting(true);
     try {
       // Update stock if changed
@@ -52,6 +54,7 @@ export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModa
       onClose();
     } catch (error) {
       console.error('❌ Failed to update:', error);
+      setError(error instanceof Error ? error.message : 'Failed to update stock');
       setIsSubmitting(false);
     }
   };
@@ -106,12 +109,17 @@ export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModa
 
         {/* Stock Update Form */}
         <div className="p-6">
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
           {/* Current Stock */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-gray-700">Current Stock</span>
               <span className="text-lg font-bold text-gray-900">
-                {formatStockQuantity(product.stock_quantity)}
+                {formatQuantity(product.stock_quantity)} {product.base_unit}
               </span>
             </div>
           </div>
@@ -177,6 +185,7 @@ export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModa
                 onChange={(e) => handleDirectInput(e.target.value)}
                 className="flex-1 px-3 py-2 text-center border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 min="0"
+                step={['kg', 'gram', 'g', 'litre', 'liter', 'ml', 'metre'].includes(product.base_unit) ? '0.001' : '1'}
               />
               
               <button

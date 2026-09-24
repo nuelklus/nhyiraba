@@ -80,14 +80,30 @@ export function formatRelativeTime(timestamp: string | Date): string {
 }
 
 // Format stock quantity with proper pluralization
-export function formatStockQuantity(quantity: number): string {
-  if (quantity === 0) {
+export function formatStockQuantity(quantity: number | string): string {
+  const numericQuantity = typeof quantity === 'string' ? parseFloat(quantity) : quantity;
+  const formattedQuantity = Number.isFinite(numericQuantity)
+    ? numericQuantity.toLocaleString('en-GH', {
+        maximumFractionDigits: 3,
+      })
+    : '0';
+
+  if (numericQuantity === 0) {
     return 'Out of stock';
-  } else if (quantity === 1) {
+  } else if (numericQuantity === 1) {
     return '1 item';
   } else {
-    return `${quantity.toLocaleString()} items`;
+    return `${formattedQuantity} items`;
   }
+}
+
+export function formatQuantity(quantity: number | string): string {
+  const numericQuantity = typeof quantity === 'string' ? parseFloat(quantity) : quantity;
+  if (!Number.isFinite(numericQuantity)) return '0';
+
+  return numericQuantity.toLocaleString('en-GH', {
+    maximumFractionDigits: 3,
+  });
 }
 
 // Get stock status color

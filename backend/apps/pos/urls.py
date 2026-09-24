@@ -38,6 +38,7 @@ urlpatterns = [
     
     # Sales summary
     path('sales-summary/', views.sales_summary, name='pos-sales-summary'),
+    path('business-report/', views.business_report, name='pos-business-report'),
     
     # Subscription endpoints
     path('subscriptions/subscription/', subscription_views.subscription_info, name='pos-subscription-info'),

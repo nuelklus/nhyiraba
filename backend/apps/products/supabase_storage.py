@@ -63,12 +63,12 @@ class SupabaseStorageService:
             # Get public URL
             public_url = f"{self.storage_url}/{filename}"
             
-            print(f"✅ Image uploaded successfully: {public_url}")
+            print(f"Image uploaded successfully: {public_url}")
             return True, public_url, None
             
         except Exception as e:
             error_msg = f"Failed to upload image to Supabase: {str(e)}"
-            print(f"❌ {error_msg}")
+            print(error_msg)
             return False, None, error_msg
     
     def _process_image(self, image_file):

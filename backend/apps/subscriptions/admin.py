@@ -1,7 +1,15 @@
 from django.contrib import admin
 from django.utils.html import format_html, mark_safe
 from django.utils import timezone
-from .models import Plan, Organization
+from .models import Branch, Plan, Organization
+
+
+@admin.register(Branch)
+class BranchAdmin(admin.ModelAdmin):
+    list_display = ["name", "store_id", "organization", "is_active", "phone", "email"]
+    list_filter = ["is_active", "organization"]
+    search_fields = ["name", "store_id", "organization__business_name"]
+    list_select_related = ["organization"]
 
 
 @admin.register(Plan)

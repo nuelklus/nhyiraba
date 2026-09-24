@@ -67,6 +67,16 @@ class Product(models.Model):
         ('refurbished', 'Refurbished'),
         ('used', 'Used'),
     ]
+    UNIT_CHOICES = [
+        ('piece', 'Piece'), ('pack', 'Pack'), ('box', 'Box'),
+        ('carton', 'Carton'), ('crate', 'Crate'), ('bundle', 'Bundle'),
+        ('dozen', 'Dozen'), ('gram', 'Gram'), ('kg', 'Kilogram'),
+        ('litre', 'Litre'), ('metre', 'Metre'), ('bag', 'Bag'),
+        ('sack', 'Sack'), ('roll', 'Roll'), ('set', 'Set'),
+        ('pair', 'Pair'), ('other', 'Other'),
+        # Retain legacy values for existing products.
+        ('g', 'Gram (legacy)'), ('liter', 'Liter (legacy)'), ('ml', 'Milliliter (legacy)'),
+    ]
 
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=220, unique=True)
@@ -92,8 +102,9 @@ class Product(models.Model):
     
     # Stock
     track_stock = models.BooleanField(default=True)
-    stock_quantity = models.PositiveIntegerField(default=0)
-    low_stock_threshold = models.PositiveIntegerField(default=5)
+    base_unit = models.CharField(max_length=20, choices=UNIT_CHOICES, default='piece')
+    stock_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    low_stock_threshold = models.DecimalField(max_digits=12, decimal_places=3, default=5)
     
     # Product expiry
     expiry_date = models.DateField(null=True, blank=True, help_text="Optional expiry date for the product")
@@ -108,7 +119,7 @@ class Product(models.Model):
     meta_description = models.CharField(max_length=300, blank=True)
     
     # NEW: POS-specific fields for stock synchronization
-    pos_stock_quantity = models.IntegerField(default=0, help_text="Stock quantity from POS system")
+    pos_stock_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0, help_text="Stock quantity from POS system")
     last_pos_sync = models.DateTimeField(null=True, blank=True, help_text="Last time POS synced stock")
     pos_store_id = models.CharField(max_length=50, default='main', help_text="POS store identifier")
     stock_sync_version = models.IntegerField(default=0, help_text="Version number for stock sync conflicts")
@@ -206,6 +217,65 @@ class Product(models.Model):
             return round(((self.compare_price - self.price) / self.compare_price) * 100, 1)
         return 0
 
+
+class StoreProductStock(models.Model):
+    """Branch-specific stock balance for a product."""
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='store_stocks')
+    store_id = models.CharField(max_length=100, default='main')
+    quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    sync_version = models.IntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['store_id', 'product'], name='products_store_product_unique'),
+        ]
+        indexes = [
+            models.Index(fields=['store_id', 'product'], name='products_store_product_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.store_id}: {self.product.name} ({self.quantity})"
+
+
+class ProductUnit(models.Model):
+    UNIT_TYPE_CHOICES = Product.UNIT_CHOICES
+
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='units')
+    name = models.CharField(max_length=50)
+    abbreviation = models.CharField(max_length=20, blank=True)
+    unit_type = models.CharField(max_length=20, choices=UNIT_TYPE_CHOICES)
+    conversion_to_base = models.DecimalField(max_digits=12, decimal_places=6, default=1)
+    selling_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    active = models.BooleanField(default=True)
+    is_base = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['product', 'name'], name='products_unit_product_name_uniq'),
+            models.UniqueConstraint(fields=['product'], condition=models.Q(is_base=True), name='products_one_base_unit'),
+        ]
+        ordering = ['name']
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.conversion_to_base <= 0:
+            raise ValidationError({'conversion_to_base': 'Conversion must be greater than zero.'})
+        if self.is_base and self.conversion_to_base != 1:
+            raise ValidationError({'conversion_to_base': 'The base unit conversion must be 1.'})
+        if self.is_base and self.unit_type != self.product.base_unit:
+            raise ValidationError({'unit_type': 'The base unit type must match the product base unit.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.product.name} - {self.name}"
+
+
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
     image = models.URLField()
@@ -289,9 +359,9 @@ class InventoryTransaction(models.Model):
     
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='inventory_transactions')
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
-    quantity_change = models.IntegerField(help_text="Positive for stock in, negative for stock out")
-    quantity_before = models.PositiveIntegerField()
-    quantity_after = models.PositiveIntegerField()
+    quantity_change = models.DecimalField(max_digits=12, decimal_places=3, help_text="Positive for stock in, negative for stock out")
+    quantity_before = models.DecimalField(max_digits=12, decimal_places=3)
+    quantity_after = models.DecimalField(max_digits=12, decimal_places=3)
     reference = models.CharField(max_length=100, blank=True, help_text="Order number, invoice, etc.")
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
@@ -615,9 +685,9 @@ class StockSyncLog(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_sync_logs')
-    old_quantity = models.IntegerField(help_text="Previous stock quantity")
-    new_quantity = models.IntegerField(help_text="New stock quantity")
-    change_amount = models.IntegerField(help_text="Quantity change (+ or -)")
+    old_quantity = models.DecimalField(max_digits=12, decimal_places=3, help_text="Previous stock quantity")
+    new_quantity = models.DecimalField(max_digits=12, decimal_places=3, help_text="New stock quantity")
+    change_amount = models.DecimalField(max_digits=12, decimal_places=3, help_text="Quantity change (+ or -)")
     
     # Source and destination tracking
     source = models.CharField(

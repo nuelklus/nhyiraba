@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Product, Category, Brand, Warehouse, ProductImage, 
-    TechnicalSpecification, WarehouseStock, ProductReview
+    TechnicalSpecification, WarehouseStock, ProductReview, ProductUnit
 )
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -98,6 +98,7 @@ class ProductListSerializer(serializers.ModelSerializer):
     stock_status = serializers.SerializerMethodField()
     discount_percentage = serializers.SerializerMethodField()
     expiry_status = serializers.SerializerMethodField()
+    units = serializers.SerializerMethodField()
     
     class Meta:
         model = Product
@@ -106,7 +107,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             'price', 'compare_price', 'discount_percentage',
             'category', 'brand', 'primary_image', 'image_url', 'stock_status',
             'stock_quantity', 'is_active', 'is_featured', 'expiry_date', 'expiry_status',
-            'created_at'
+            'base_unit', 'units', 'created_at'
         ]
 
     def get_primary_image(self, obj):
@@ -148,6 +149,17 @@ class ProductListSerializer(serializers.ModelSerializer):
         else:
             return {'status': 'ok', 'message': 'Good', 'days_remaining': days_until_expiry}
 
+    def get_units(self, obj):
+        return ProductUnitSerializer(obj.units.filter(active=True), many=True).data
+
+
+class ProductUnitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductUnit
+        fields = ['id', 'name', 'abbreviation', 'unit_type', 'conversion_to_base',
+                  'selling_price', 'active', 'is_base']
+        read_only_fields = ['id']
+
 class ProductDetailSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     brand = BrandSerializer(read_only=True)
@@ -159,6 +171,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     discount_percentage = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
     expiry_status = serializers.SerializerMethodField()
+    units = ProductUnitSerializer(many=True, read_only=True)
     
     class Meta:
         model = Product
@@ -167,7 +180,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             'description', 'short_description',
             'price', 'compare_price', 'cost_price', 'discount_percentage',
             'category', 'brand', 'condition', 'weight', 'dimensions', 'image_url',
-            'track_stock', 'stock_quantity', 'low_stock_threshold',
+            'track_stock', 'stock_quantity', 'low_stock_threshold', 'base_unit', 'units',
             'stock_status', 'is_active', 'is_featured', 'is_digital',
             'expiry_date', 'expiry_status',
             'images', 'specifications', 'warehouse_stock', 'reviews',
@@ -214,6 +227,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     specifications = TechnicalSpecificationSerializer(many=True, required=False)
     image = serializers.ImageField(write_only=True, required=False, allow_null=True, use_url=False)
+    units = serializers.JSONField(write_only=True, required=False)
     
     class Meta:
         model = Product
@@ -223,6 +237,7 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
             'price', 'compare_price', 'cost_price',
             'condition', 'weight', 'dimensions', 'image_url', 'image',
             'track_stock', 'stock_quantity', 'low_stock_threshold',
+            'base_unit', 'units',
             'expiry_date',
             'is_active', 'is_featured', 'is_digital',
             'meta_title', 'meta_description',
@@ -280,6 +295,7 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
         print(f"✅ Validated data: {list(validated_data.keys())}")
         
         specs_data = validated_data.pop('specifications', [])
+        units_data = validated_data.pop('units', [])
         image_file = validated_data.pop('image', None)
         
         print(f"📷 Image file: {image_file}")
@@ -300,14 +316,33 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
                     validated_data['image_url'] = url
                     print(f"✅ Image uploaded to Supabase: {url}")
                 else:
-                    print(f"⚠️ Image upload failed: {error}")
+                    raise serializers.ValidationError({
+                        'image': error or 'Image upload failed.'
+                    })
             except Exception as e:
                 print(f"❌ Supabase upload error: {e}")
-                print(f"⚠️ Continuing without image upload")
-                # Continue without image - product will still be created
+                if isinstance(e, serializers.ValidationError):
+                    raise
+                raise serializers.ValidationError({
+                    'image': f'Image upload failed: {e}'
+                }) from e
         
         # Create product with Supabase URL
         product = Product.objects.create(**validated_data)
+
+        for unit_data in units_data:
+            ProductUnit.objects.create(product=product, **unit_data)
+
+        if not units_data:
+            ProductUnit.objects.create(
+                product=product,
+                name=product.get_base_unit_display(),
+                abbreviation=product.base_unit,
+                unit_type=product.base_unit,
+                conversion_to_base=1,
+                selling_price=product.price,
+                is_base=True,
+            )
         
         # Create specifications
         for spec_data in specs_data:

@@ -102,23 +102,24 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Store ID */}
+            {/* Branch */}
             <div>
               <label htmlFor="store_id" className="block text-sm font-medium text-gray-700">
-                Store Location
+                Branch ID
               </label>
-              <select
+              <input
                 id="store_id"
                 name="store_id"
+                type="text"
+                required
                 value={formData.store_id}
                 onChange={handleChange}
                 className="mt-1 block w-full px-4 py-3 sm:px-3 sm:py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-base sm:text-sm text-gray-900"
-              >
-                <option value="main">Main Store</option>
-                <option value="warehouse">Warehouse</option>
-                <option value="branch1">Branch 1</option>
-                <option value="branch2">Branch 2</option>
-              </select>
+                placeholder="Enter your branch ID"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Use the branch ID assigned to your account.
+              </p>
             </div>
 
             {/* Device ID */}
@@ -163,7 +164,7 @@ export default function LoginPage() {
               <h3 className="hidden sm:block text-sm font-medium text-blue-900 mb-2">Demo Credentials</h3>
               <p><strong>Username:</strong> admin</p>
               <p><strong>Password:</strong> admin123</p>
-              <p><strong>Store:</strong> Main Store</p>
+              <p><strong>Branch ID:</strong> Use the branch assigned to your account</p>
               <p className="mt-2 text-blue-600">Use these credentials to test the POS system</p>
             </div>
           </details>

@@ -20,6 +20,13 @@ class User(AbstractUser):
     staff_role = models.CharField(max_length=32, choices=StaffRole.choices, blank=True, null=True)
     store_id = models.CharField(max_length=100, default='main', blank=True, null=True, help_text="Store ID for STAFF users")
     organization = models.ForeignKey('subscriptions.Organization', on_delete=models.CASCADE, null=True, blank=True, related_name='users')
+    branch = models.ForeignKey(
+        'subscriptions.Branch',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='users',
+    )
     is_staff = models.BooleanField(default=False)  # Required for Django admin access
 
     def clean(self):
@@ -29,6 +36,18 @@ class User(AbstractUser):
             raise ValidationError({
                 'staff_role': 'staff_role can only be set when role is STAFF'
             })
+        if self.branch:
+            if not self.organization_id:
+                raise ValidationError({'branch': 'A branch requires an organization.'})
+            if self.branch.organization_id != self.organization_id:
+                raise ValidationError({'branch': 'Branch must belong to the user organization.'})
+            if not self.branch.is_active:
+                raise ValidationError({'branch': 'Users cannot be assigned to an inactive branch.'})
+
+    def save(self, *args, **kwargs):
+        if self.branch_id:
+            self.store_id = self.branch.store_id
+        super().save(*args, **kwargs)
 
     def is_pro_contractor(self) -> bool:
         return self.role == UserRole.PRO_CONTRACTOR

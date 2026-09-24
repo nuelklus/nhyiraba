@@ -58,6 +58,9 @@ class RegisterView(APIView):
                 validated_data.pop('password_confirm', None)
                 
                 organization = request.user.organization if request.user and request.user.is_authenticated else None
+                # Public registrations cannot select an organization branch.
+                if not organization:
+                    validated_data.pop("branch", None)
                 user, tokens = AuthService.register_user(
                     organization=organization,
                     **validated_data

@@ -2,20 +2,20 @@ from .base import *  # noqa
 
 DEBUG = True
 
+# Local-only JWT signing key
+SIMPLE_JWT["SIGNING_KEY"] = SECRET_KEY
 # Local PostgreSQL database configuration for development
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('LOCAL_DB_NAME', 'hardware_ecommerce'),
-        'USER': os.getenv('LOCAL_DB_USER', 'postgres'),
-        'PASSWORD': os.getenv('LOCAL_DB_PASSWORD', ''),
-        'HOST': os.getenv('LOCAL_DB_HOST', 'localhost'),
-        'PORT': os.getenv('LOCAL_DB_PORT', '5432'),
-        'OPTIONS': {
-            'connect_timeout': 120,
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "trendykiddos_db",
+        "USER": "trendykiddos_user",
+        "PASSWORD": "Trendykiddos2026Pass",
+        "HOST": "127.0.0.1",
+        "PORT": "5433",
+        "TEST": {
+            "NAME": "nexlogs_newapp",
         },
-        'CONN_MAX_AGE': 600,  # 10 minutes for development
-        'ATOMIC_REQUESTS': True,
     }
 }
 

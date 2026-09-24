@@ -136,3 +136,45 @@ class Organization(models.Model):
         # Cache max_users from plan
         self.max_users = self.current_plan.max_users
         super().save(*args, **kwargs)
+
+
+class Branch(models.Model):
+    """A physical store belonging to an organization.
+
+    ``store_id`` remains the stable identifier used by the POS and stock
+    tables.  It is unique within an organization so existing integrations can
+    continue to pass store IDs without knowing about this relationship.
+    """
+
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="branches"
+    )
+    store_id = models.CharField(max_length=100)
+    name = models.CharField(max_length=200)
+    address = models.TextField(blank=True)
+    phone = models.CharField(max_length=32, blank=True)
+    email = models.EmailField(blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "store_id"],
+                name="subscriptions_org_branch_store_unique",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["organization", "is_active"], name="subs_branch_active_idx"),
+            models.Index(fields=["store_id"], name="subs_branch_store_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.store_id})"
+
+    def clean(self):
+        super().clean()
+        if not self.store_id or not self.store_id.strip():
+            raise ValidationError({"store_id": "Store ID is required."})
