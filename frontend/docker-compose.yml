@@ -1,0 +1,27 @@
+name: nhyiraba-frontend
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: nhyiraba-frontend
+
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_API_URL: https://nhyiraba.nexlogssolutions.com/api
+
+    ports:
+      - "127.0.0.1:3014:3000"
+
+    networks:
+      - nexlogs-internal-network
+
+networks:
+  nexlogs-internal-network:
+    external: true

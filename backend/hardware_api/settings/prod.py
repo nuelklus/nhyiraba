@@ -7,6 +7,7 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() in {'1', 'true', 'yes'}
 
 # Security
 SECURE_SSL_REDIRECT = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
@@ -20,7 +21,7 @@ X_FRAME_OPTIONS = 'DENY'
 DATABASES = {
     'default': dj_database_url.config(
         conn_max_age=600,
-        ssl_require=True
+        ssl_require=False
     )
 }
 
@@ -36,8 +37,9 @@ CACHES = {
 }
 
 # Session (optimized for memory)
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'default'
+#SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+#SESSION_CACHE_ALIAS = 'default'
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 
 # Logging (minimal for production)
 LOGGING = {
@@ -145,16 +147,12 @@ MIDDLEWARE = [
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
-    'testserver',  # For testing
-    os.getenv('RENDER_EXTERNAL_HOSTNAME', ''),
-    '.onrender.com',
-    'allshopsdepot.com',
-    'www.allshopsdepot.com',
+    'nhyiraba.nexlogssolutions.com',
 ]
 
 # CORS (production)
-frontend_url = os.getenv('FRONTEND_URL', 'https://allshopsdepot.com')
-pos_frontend_url = os.getenv('POS_FRONTEND_URL', 'https://ephritta.nexlogssolutions.com')
+frontend_url = os.getenv('FRONTEND_URL', 'https://nhyiraba.nexlogssolutions.com')
+pos_frontend_url = os.getenv('POS_FRONTEND_URL', 'https://nhyiraba.nexlogssolutions.com')
 CORS_ALLOWED_ORIGINS = [
     frontend_url,
     pos_frontend_url,
@@ -162,7 +160,7 @@ CORS_ALLOWED_ORIGINS = [
 
 # CSRF Trusted Origins (for secure form submission)
 CSRF_TRUSTED_ORIGINS = [
-    'https://ephritta.nexlogssolutions.com'
+    'https://nhyiraba.nexlogssolutions.com',
 ]
 
 # Remove development CORS settings

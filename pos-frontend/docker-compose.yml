@@ -1,0 +1,23 @@
+name: nhyiraba-frontend
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_POS_API_URL: https://nhyiraba.nexlogssolutions.com/api/pos
+
+    container_name: nhyiraba-frontend
+
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:3014:80"
+
+    networks:
+      - nexlogs-internal-network
+
+networks:
+  nexlogs-internal-network:
+    external: true
