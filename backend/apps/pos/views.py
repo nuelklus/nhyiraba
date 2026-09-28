@@ -11,8 +11,9 @@ from django.db.models import Subquery, OuterRef, F, Value
 from django.db.models.functions import Coalesce
 from decimal import Decimal, InvalidOperation
 from django.core.exceptions import ValidationError
-from apps.products.models import Product, StockSyncLog, InventoryTransaction, StoreProductStock
+from apps.products.models import Product, ProductUnit, StockSyncLog, InventoryTransaction, StoreProductStock
 from apps.products.inventory_service import sell_product, get_store_stock
+from apps.subscriptions.models import Branch
 from apps.products.serializers import ProductListSerializer, ProductCreateUpdateSerializer
 from apps.accounts.models import StaffRole
 from apps.subscriptions.decorators import require_feature
@@ -26,6 +27,49 @@ from .models import Transaction, TransactionItem, Refund
 from .permissions import CanUpdateStock, CanCreateProduct
 import json
 
+
+def resolve_pos_store_id(request, requested_store_id=None):
+    """Resolve a branch and enforce organization/assignment access."""
+    store_id = str(requested_store_id or getattr(request.user, 'store_id', '') or '').strip()
+    if not store_id or not request.user.organization_id:
+        return None
+
+    branch = Branch.objects.filter(
+        organization_id=request.user.organization_id,
+        store_id=store_id,
+        is_active=True,
+    ).first()
+    if branch is None:
+        return None
+
+    has_business_access = (
+        request.user.is_superuser
+        or getattr(request.user, 'staff_role', None) == StaffRole.ADMIN
+    )
+    if not has_business_access and request.user.branch_id != branch.id:
+        return None
+    return branch.store_id
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, HasValidSubscription])
+def pos_branches(request):
+    """List active branches the current user may operate in."""
+    branches = Branch.objects.filter(
+        organization_id=request.user.organization_id,
+        is_active=True,
+    ).order_by('name')
+    if not (
+        request.user.is_superuser
+        or getattr(request.user, 'staff_role', None) == StaffRole.ADMIN
+    ):
+        branches = branches.filter(pk=request.user.branch_id)
+    return Response([
+        {'id': branch.id, 'store_id': branch.store_id, 'name': branch.name}
+        for branch in branches
+    ])
+
+
 class POSProductViewSet(viewsets.ModelViewSet):
     """POS-specific product endpoints"""
     serializer_class = POSProductSerializer
@@ -34,15 +78,50 @@ class POSProductViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Return active products with POS-specific fields"""
         return Product.objects.filter(is_active=True).select_related('category', 'brand')
+
+    def partial_update(self, request, *args, **kwargs):
+        if not CanCreateProduct().has_permission(request, self):
+            return Response(
+                {'error': 'You do not have permission to update product details.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        store_id = resolve_pos_store_id(request, request.data.get('store_id'))
+        if store_id is None:
+            return Response({'error': 'You do not have access to the selected branch.'}, status=403)
+
+        allowed_fields = {'price', 'cost_price', 'expiry_date', 'store_id'}
+        unexpected_fields = set(request.data.keys()) - allowed_fields
+        if unexpected_fields:
+            return Response(
+                {'error': 'Only price, cost_price, and expiry_date can be updated through this endpoint.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        product = self.get_object()
+        update_data = request.data.copy()
+        update_data.pop('store_id', None)
+        serializer = ProductCreateUpdateSerializer(product, data=update_data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            product = serializer.save()
+            if 'price' in update_data:
+                ProductUnit.objects.filter(product=product, is_base=True).update(
+                    selling_price=product.price
+                )
+        return Response(ProductListSerializer(product).data, status=status.HTTP_200_OK)
     
     def list(self, request, *args, **kwargs):
         """Optimized list for POS - includes barcode and stock info"""
         queryset = self.get_queryset()
         
         # Filter by store if specified
-        store_id = request.query_params.get('store_id') or getattr(request.user, 'store_id', None) or 'main'
+        store_id = resolve_pos_store_id(request, request.query_params.get('store_id'))
+        if store_id is None:
+            return Response({'error': 'You do not have access to the selected branch.'}, status=403)
         queryset = queryset.annotate(
-            branch_stock_quantity=            Coalesce(
+            branch_stock_quantity=Coalesce(
                 Subquery(
                     StoreProductStock.objects.filter(
                         product=OuterRef('pk'), store_id=store_id
@@ -51,7 +130,15 @@ class POSProductViewSet(viewsets.ModelViewSet):
                 F('stock_quantity') if store_id == 'main' else Value(
                     0, output_field=Product._meta.get_field('stock_quantity')
                 ),
-            )
+            ),
+            branch_stock_version=Coalesce(
+                Subquery(
+                    StoreProductStock.objects.filter(
+                        product=OuterRef('pk'), store_id=store_id
+                    ).values('sync_version')[:1]
+                ),
+                Value(0),
+            ),
         )
         
         # Search by barcode if provided (requires barcode_support feature)
@@ -88,7 +175,9 @@ class POSProductViewSet(viewsets.ModelViewSet):
         product_id = request.data.get('product_id')
         new_quantity = request.data.get('quantity')
         change_amount = request.data.get('change_amount', 0)
-        store_id = request.data.get('store_id') or getattr(request.user, 'store_id', None) or 'main'
+        store_id = resolve_pos_store_id(request, request.data.get('store_id'))
+        if store_id is None:
+            return Response({'error': 'You do not have access to the selected branch.'}, status=403)
         device_id = request.data.get('device_id', 'unknown')
         
         if not product_id or new_quantity is None:
@@ -196,7 +285,9 @@ class POSProductViewSet(viewsets.ModelViewSet):
     def bulk_stock_update(self, request):
         """Update multiple products stock at once"""
         updates = request.data.get('updates', [])
-        store_id = request.data.get('store_id') or getattr(request.user, 'store_id', None) or 'main'
+        store_id = resolve_pos_store_id(request, request.data.get('store_id'))
+        if store_id is None:
+            return Response({'error': 'You do not have access to the selected branch.'}, status=403)
         device_id = request.data.get('device_id', 'unknown')
         
         if not updates:
@@ -336,14 +427,28 @@ class POSProductViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], permission_classes=[CanCreateProduct])
     def create_product(self, request):
         """Create a new product from POS (Admin, Manager, Inventory Staff only)"""
+        store_id = resolve_pos_store_id(request, request.data.get('store_id'))
+        if store_id is None:
+            return Response({'error': 'You do not have access to the selected branch.'}, status=403)
+
         serializer = ProductCreateUpdateSerializer(data=request.data)
         if serializer.is_valid():
-            product = serializer.save()
-            # Set POS-specific fields
-            product.pos_store_id = request.data.get('store_id', 'main')
-            product.pos_stock_quantity = product.stock_quantity
-            product.last_pos_sync = timezone.now()
-            product.save()
+            with transaction.atomic():
+                product = serializer.save()
+                initial_quantity = product.stock_quantity
+                if store_id != 'main':
+                    product.stock_quantity = 0
+                    product.pos_stock_quantity = 0
+                    product.save(update_fields=['stock_quantity', 'pos_stock_quantity'])
+                StoreProductStock.objects.update_or_create(
+                    product=product,
+                    store_id=store_id,
+                    defaults={'quantity': initial_quantity},
+                )
+                product.pos_store_id = store_id
+                product.pos_stock_quantity = initial_quantity
+                product.last_pos_sync = timezone.now()
+                product.save(update_fields=['pos_store_id', 'pos_stock_quantity', 'last_pos_sync'])
             return Response(ProductListSerializer(product).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -559,60 +664,108 @@ def transaction_history(request):
 @permission_classes([IsAuthenticated, HasValidSubscription])
 @require_feature('profit_loss_reports')
 def sales_summary(request):
-    """Get sales summary statistics for current store"""
+    """Get sales summary and transaction detail for a store and date range."""
     try:
-        # Get store_id from query params or fall back to user's store_id or 'main'
-        store_id = request.query_params.get('store_id', request.user.store_id or 'main')
-        
-        # Get date range from query params (default to today)
+        from datetime import datetime, time, timedelta
+        from django.db.models.functions import TruncDate
+        from django.utils.dateparse import parse_date
+
+        requested_store_id = request.query_params.get('store_id') or request.user.store_id
+        store_id = resolve_pos_store_id(request, requested_store_id)
+        if store_id is None:
+            return Response({'error': 'You do not have access to the selected branch.'}, status=403)
+
         date_range = request.query_params.get('date_range', 'today')
-        
-        from django.utils import timezone
-        from datetime import timedelta
-        
         now = timezone.now()
-        
-        if date_range == 'today':
-            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif date_range == 'week':
-            start_date = now - timedelta(days=7)
-        elif date_range == 'month':
-            start_date = now - timedelta(days=30)
+        today = timezone.localdate(now)
+        requested_start = request.query_params.get('date_from')
+        requested_end = request.query_params.get('date_to')
+
+        if requested_start or requested_end:
+            start_day = parse_date(requested_start or '')
+            end_day = parse_date(requested_end or '')
+            if not start_day or not end_day:
+                return Response(
+                    {'error': 'Provide valid date_from and date_to values in YYYY-MM-DD format.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if end_day < start_day:
+                return Response(
+                    {'error': 'date_to must be the same as or later than date_from.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            date_range = 'custom'
         else:
-            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        
-        # Filter transactions by store, status, and date range
+            days_by_range = {'week': 7, 'month': 30, 'year': 365}
+            if date_range == 'today':
+                start_day = today
+            elif date_range in days_by_range:
+                start_day = today - timedelta(days=days_by_range[date_range] - 1)
+            else:
+                return Response(
+                    {'error': 'date_range must be today, week, month, year, or custom.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            end_day = today
+
+        start_date = timezone.make_aware(datetime.combine(start_day, time.min))
+        end_exclusive = timezone.make_aware(datetime.combine(end_day + timedelta(days=1), time.min))
         transactions = Transaction.objects.filter(
             store_id=store_id,
             status='completed',
-            completed_at__gte=start_date
-        )
-        
-        # Calculate statistics
-        total_sales = transactions.aggregate(
-            total=models.Sum('total_amount')
-        )['total'] or 0
-        
+            completed_at__gte=start_date,
+            completed_at__lt=end_exclusive,
+        ).select_related('user').prefetch_related('items').order_by('-completed_at')
+
+        summary = transactions.aggregate(total=models.Sum('total_amount'))
+        total_sales = summary['total'] or 0
         transaction_count = transactions.count()
-        
-        # Get average transaction value
         avg_transaction_value = total_sales / transaction_count if transaction_count > 0 else 0
-        
-        # Get sales by payment method
         payment_method_breakdown = transactions.values('payment_method').annotate(
             count=models.Count('id'),
             total=models.Sum('total_amount')
-        )
-        
+        ).order_by('payment_method')
+        daily_sales = transactions.annotate(
+            sale_date=TruncDate('completed_at')
+        ).values('sale_date').annotate(
+            total=models.Sum('total_amount'),
+            transaction_count=models.Count('id'),
+        ).order_by('sale_date')
+        top_products = TransactionItem.objects.filter(
+            transaction__in=transactions
+        ).values('product_name', 'product_sku').annotate(
+            quantity=models.Sum('quantity'),
+            total_sales=models.Sum('total_price'),
+        ).order_by('-total_sales')[:10]
+
         return Response({
             'store_id': store_id,
             'date_range': date_range,
             'start_date': start_date.isoformat(),
-            'end_date': now.isoformat(),
+            'end_date': (end_exclusive - timedelta(microseconds=1)).isoformat(),
             'total_sales': float(total_sales),
             'transaction_count': transaction_count,
             'average_transaction_value': float(avg_transaction_value),
-            'payment_method_breakdown': list(payment_method_breakdown)
+            'payment_method_breakdown': list(payment_method_breakdown),
+            'daily_sales': [
+                {
+                    'date': row['sale_date'].isoformat(),
+                    'total': float(row['total'] or 0),
+                    'transaction_count': row['transaction_count'],
+                }
+                for row in daily_sales
+            ],
+            'top_products': [
+                {
+                    'name': row['product_name'],
+                    'sku': row['product_sku'],
+                    'quantity': float(row['quantity'] or 0),
+                    'total_sales': float(row['total_sales'] or 0),
+                }
+                for row in top_products
+            ],
+            'transactions': TransactionSerializer(transactions[:50], many=True).data,
+            'transactions_limited': transaction_count > 50,
         }, status=status.HTTP_200_OK)
         
     except Exception as e:

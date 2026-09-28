@@ -14,7 +14,7 @@ class POSProductSerializer(ProductListSerializer):
     pos_stock_quantity = serializers.IntegerField(read_only=True)
     last_pos_sync = serializers.DateTimeField(read_only=True)
     pos_store_id = serializers.CharField(read_only=True)
-    stock_sync_version = serializers.IntegerField(read_only=True)
+    stock_sync_version = serializers.SerializerMethodField()
     stock_update_source = serializers.CharField(read_only=True)
     stock_updated_by = serializers.CharField(read_only=True)
 
@@ -27,6 +27,9 @@ class POSProductSerializer(ProductListSerializer):
         if quantity > 0:
             return {'status': 'low_stock', 'message': 'Low Stock'}
         return {'status': 'out_of_stock', 'message': 'Out of Stock'}
+
+    def get_stock_sync_version(self, obj):
+        return getattr(obj, 'branch_stock_version', obj.stock_sync_version)
     
     class Meta(ProductListSerializer.Meta):
         fields = ProductListSerializer.Meta.fields + [

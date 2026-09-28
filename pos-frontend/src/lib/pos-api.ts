@@ -21,6 +21,12 @@ export interface POSAuthResponse {
   device_id: string;
 }
 
+export interface POSBranch {
+  id: number;
+  store_id: string;
+  name: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -28,6 +34,7 @@ export interface Product {
   barcode?: string;
   description: string;
   price: string;
+  cost_price?: string | null;
   stock_quantity: number;
   pos_stock_quantity: number;
   last_pos_sync?: string;
@@ -54,6 +61,54 @@ export interface Product {
     days_remaining?: number;
     days_overdue?: number;
   };
+}
+
+export interface ProductUpdateRequest {
+  price?: string;
+  cost_price?: string | null;
+  expiry_date?: string | null;
+  store_id: string;
+}
+
+export interface SalesSummaryResponse {
+  store_id: string;
+  date_range: string;
+  start_date: string;
+  end_date: string;
+  total_sales: number;
+  transaction_count: number;
+  average_transaction_value: number;
+  payment_method_breakdown: Array<{
+    payment_method: string;
+    count: number;
+    total: number;
+  }>;
+  daily_sales: Array<{
+    date: string;
+    total: number;
+    transaction_count: number;
+  }>;
+  top_products: Array<{
+    name: string;
+    sku: string;
+    quantity: number;
+    total_sales: number;
+  }>;
+  transactions: Array<{
+    transaction_id: string;
+    receipt_number: string | null;
+    user_name: string;
+    payment_method: string;
+    total_amount: string;
+    completed_at: string | null;
+    items: Array<{
+      product_name: string;
+      quantity: string;
+      unit_name: string;
+      total_price: string;
+    }>;
+  }>;
+  transactions_limited: boolean;
 }
 
 export interface ProductUnit {
@@ -404,6 +459,10 @@ class POSApiClient {
     }
   }
 
+  canManageAllBranches(): boolean {
+    return this.getUserStaffRole() === 'ADMIN';
+  }
+
   // Product methods
   async getProducts(params?: {
     store_id?: string;
@@ -440,7 +499,7 @@ class POSApiClient {
     return response.data;
   }
 
-  async updateProduct(productId: string, productData: any): Promise<Product> {
+  async updateProduct(productId: string, productData: ProductUpdateRequest): Promise<Product> {
     const response = await this.axiosInstance.patch(`/products/${productId}/`, productData);
     return response.data;
   }
@@ -541,9 +600,19 @@ class POSApiClient {
     return response.data;
   }
 
-  async getSalesSummary(dateRange: string = 'today', storeId?: string): Promise<any> {
+  async getSalesSummary(
+    dateRange: string = 'today',
+    storeId?: string,
+    dateFrom?: string,
+    dateTo?: string,
+  ): Promise<SalesSummaryResponse> {
     const response = await this.axiosInstance.get('/sales-summary/', {
-      params: { date_range: dateRange, store_id: storeId }
+      params: {
+        date_range: dateRange,
+        store_id: storeId,
+        date_from: dateFrom,
+        date_to: dateTo,
+      }
     });
     return response.data;
   }
@@ -555,9 +624,18 @@ class POSApiClient {
     return response.data;
   }
 
+  async getBranches(): Promise<POSBranch[]> {
+    const response = await this.axiosInstance.get('/branches/');
+    return response.data;
+  }
+
   // Utility methods
   getStoreId(): string {
     return localStorage.getItem('pos_store_id') || 'main';
+  }
+
+  setStoreId(storeId: string): void {
+    localStorage.setItem('pos_store_id', storeId);
   }
 
   getDeviceId(): string {

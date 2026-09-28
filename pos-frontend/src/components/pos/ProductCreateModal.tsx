@@ -8,14 +8,16 @@ import { formatCurrency } from '@/lib/utils';
 interface ProductCreateModalProps {
   onClose: () => void;
   onSuccess: () => void;
+  branchName?: string;
 }
 
-export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalProps) {
+export function ProductCreateModal({ onClose, onSuccess, branchName }: ProductCreateModalProps) {
   const [formData, setFormData] = useState({
     name: '',
     barcode: '',
     description: '',
     price: '',
+    cost_price: '',
     stock_quantity: '0',
     category: '',
     brand: '',
@@ -119,6 +121,9 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
       const backendFormData = new FormData();
       backendFormData.append('name', formData.name);
       backendFormData.append('price', formData.price);
+      if (formData.cost_price !== '') {
+        backendFormData.append('cost_price', formData.cost_price);
+      }
       backendFormData.append('stock_quantity', formData.stock_quantity);
       backendFormData.append('category', formData.category);
       backendFormData.append('brand', formData.brand);
@@ -202,6 +207,11 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto">
+          {branchName && (
+            <div className="border-b border-blue-100 bg-blue-50 px-6 py-3 text-sm font-semibold text-blue-800">
+              Starting stock will be assigned to: {branchName}
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="p-6 space-y-6">
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
@@ -317,6 +327,22 @@ export function ProductCreateModal({ onClose, onSuccess }: ProductCreateModalPro
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-base"
                     placeholder="0.00"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Cost price per {formData.base_unit} (GHS)
+                  </label>
+                  <input
+                    type="number"
+                    name="cost_price"
+                    value={formData.cost_price}
+                    onChange={handleChange}
+                    min="0"
+                    step="0.01"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Optional"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Used for inventory valuation and profit reporting.</p>
                 </div>
 
                 <div className="border-t border-gray-200 pt-4 space-y-4">

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { posApiClient, type Product, type ProductUnit, type SubscriptionInfo as SubscriptionInfoType } from '@/lib/pos-api';
+import { posApiClient, type POSBranch, type Product, type ProductUnit, type SubscriptionInfo as SubscriptionInfoType } from '@/lib/pos-api';
 // WebSocket imports removed - single terminal mode
 import { formatCurrency, formatStockQuantity, getStockStatusColor, getStockStatusText } from '@/lib/utils';
 import { BarcodeScanner } from '@/components/barcode/BarcodeScanner';
@@ -37,6 +37,8 @@ export default function POSPage() {
   const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfoType | null>(null);
   const [showSubscriptionInfo, setShowSubscriptionInfo] = useState(false);
   const [salesSummaryKey, setSalesSummaryKey] = useState(0);
+  const [branches, setBranches] = useState<POSBranch[]>([]);
+  const [selectedStoreId, setSelectedStoreId] = useState('');
   // ConnectionStatus removed - single terminal mode
   useEffect(() => {
     // Check authentication
@@ -55,6 +57,22 @@ export default function POSPage() {
 
   const initializePOS = async () => {
     try {
+      const assignedStoreId = posApiClient.getStoreId();
+      if (posApiClient.canManageAllBranches()) {
+        const availableBranches = await posApiClient.getBranches();
+        setBranches(availableBranches);
+        const activeStoreId = availableBranches.some(branch => branch.store_id === assignedStoreId)
+          ? assignedStoreId
+          : availableBranches[0]?.store_id;
+        if (!activeStoreId) {
+          throw new Error('No active branches are available for this organization.');
+        }
+        posApiClient.setStoreId(activeStoreId);
+        setSelectedStoreId(activeStoreId);
+      } else {
+        setSelectedStoreId(assignedStoreId);
+      }
+
       // Load products first (critical for UI)
       await loadProducts();
       
@@ -190,7 +208,17 @@ export default function POSPage() {
         setFilteredProducts(filtered);
       }
     }
-  }, [products]);
+  }, [products, selectedStoreId]);
+
+  const handleBranchChange = async (storeId: string) => {
+    if (cartItems.length > 0 || !branches.some(branch => branch.store_id === storeId)) return;
+    posApiClient.setStoreId(storeId);
+    setSelectedStoreId(storeId);
+    setSearchQuery('');
+    setSelectedProduct(null);
+    setFilteredProducts([]);
+    await Promise.all([loadProducts(), loadStockAlerts()]);
+  };
 
   const handleProductSelect = useCallback((product: Product) => {
     setSelectedProduct(product);
@@ -232,9 +260,13 @@ export default function POSPage() {
   }, []);
 
   const handleProductCreateSuccess = useCallback(async () => {
-    // Reload products after successful creation
     await loadProducts();
+    setSalesSummaryKey(prev => prev + 1);
   }, [loadProducts]);
+
+  const handleProductUpdateSuccess = async () => {
+    await loadProducts();
+  };
 
   // Memoize filtered products to avoid unnecessary recalculations
   const memoizedFilteredProducts = useMemo(() => {
@@ -287,9 +319,27 @@ export default function POSPage() {
               }}>
                 LOGO
               </h1>
-              <div className="text-xs sm:text-sm text-gray-500">
-                Store: {posApiClient.getStoreId()} | User: {posApiClient.getCurrentUser()}
-              </div>
+              {posApiClient.canManageAllBranches() ? (
+                <label className="flex items-center gap-2 text-xs text-gray-600 sm:text-sm">
+                  Branch
+                  <select
+                    value={selectedStoreId}
+                    onChange={event => void handleBranchChange(event.target.value)}
+                    disabled={cartItems.length > 0}
+                    className="max-w-40 rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 disabled:bg-gray-100"
+                    title={cartItems.length > 0 ? 'Complete or clear the cart before switching branches.' : 'Select the branch to manage'}
+                  >
+                    {branches.map(branch => (
+                      <option key={branch.id} value={branch.store_id}>{branch.name}</option>
+                    ))}
+                  </select>
+                  {cartItems.length > 0 && <span className="text-amber-700">Clear cart to switch</span>}
+                </label>
+              ) : (
+                <div className="text-xs text-gray-500 sm:text-sm">
+                  Branch: {selectedStoreId} | User: {posApiClient.getCurrentUser()}
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between sm:space-x-4">
               <div className="text-xs sm:text-sm text-green-600 font-medium">
@@ -356,7 +406,7 @@ export default function POSPage() {
           {/* Sales Summary - only visible to MANAGER and ADMIN */}
           {posApiClient.canViewSalesSummary() && (
             <div className="p-2 sm:p-4">
-              <SalesSummary refreshKey={salesSummaryKey} />
+              <SalesSummary refreshKey={salesSummaryKey} storeId={selectedStoreId} />
             </div>
           )}
           {posApiClient.canViewBusinessReport() && (
@@ -373,7 +423,9 @@ export default function POSPage() {
               onProductSelect={handleProductSelect}
               onStockUpdate={handleStockUpdateRequest}
               onAddToCart={handleAddToCart}
+              onProductUpdated={handleProductUpdateSuccess}
               canUpdateStock={posApiClient.canUpdateStock()}
+              branchName={branches.find(branch => branch.store_id === selectedStoreId)?.name || selectedStoreId}
             />
           </div>
         </div>
@@ -637,6 +689,7 @@ export default function POSPage() {
         <ProductCreateModal
           onClose={() => setShowProductCreateModal(false)}
           onSuccess={handleProductCreateSuccess}
+          branchName={branches.find(branch => branch.store_id === selectedStoreId)?.name || selectedStoreId}
         />
       )}
 

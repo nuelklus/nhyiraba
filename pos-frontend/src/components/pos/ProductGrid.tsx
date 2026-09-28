@@ -12,10 +12,12 @@ interface ProductGridProps {
   onProductSelect: (product: Product) => void;
   onStockUpdate: (productId: string, newQuantity: number, changeAmount: number) => void;
   onAddToCart?: (product: Product, unit?: ProductUnit) => void;
+  onProductUpdated?: () => void | Promise<void>;
   canUpdateStock?: boolean;
+  branchName?: string;
 }
 
-export function ProductGrid({ products, selectedProduct, onProductSelect, onStockUpdate, onAddToCart, canUpdateStock = true }: ProductGridProps) {
+export function ProductGrid({ products, selectedProduct, onProductSelect, onStockUpdate, onAddToCart, onProductUpdated, canUpdateStock = true, branchName }: ProductGridProps) {
   const [showStockModal, setShowStockModal] = useState(false);
   const [stockUpdateProduct, setStockUpdateProduct] = useState<Product | null>(null);
   const [selectedUnits, setSelectedUnits] = useState<Record<string, number>>({});
@@ -186,6 +188,8 @@ export function ProductGrid({ products, selectedProduct, onProductSelect, onStoc
             setShowStockModal(false);
             setStockUpdateProduct(null);
           }}
+          onProductUpdated={onProductUpdated}
+          branchName={branchName}
         />
       )}
     </>

@@ -8,9 +8,9 @@ SIMPLE_JWT["SIGNING_KEY"] = SECRET_KEY
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "trendykiddos_db",
-        "USER": "trendykiddos_user",
-        "PASSWORD": "Trendykiddos2026Pass",
+        "NAME": "nhyiraba_db",
+        "USER": "nhyiraba_user",
+        "PASSWORD": "nG6Sk80XMNTeWHFKja7v9fq1NE84uqnkN4AyTK7z+3A=",
         "HOST": "127.0.0.1",
         "PORT": "5433",
         "TEST": {

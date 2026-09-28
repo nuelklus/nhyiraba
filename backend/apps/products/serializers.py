@@ -228,6 +228,11 @@ class ProductCreateUpdateSerializer(serializers.ModelSerializer):
     specifications = TechnicalSpecificationSerializer(many=True, required=False)
     image = serializers.ImageField(write_only=True, required=False, allow_null=True, use_url=False)
     units = serializers.JSONField(write_only=True, required=False)
+
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError('Selling price must be zero or more.')
+        return value
     
     class Meta:
         model = Product

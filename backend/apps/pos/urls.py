@@ -13,6 +13,7 @@ urlpatterns = [
     path('auth/login/', views.pos_login, name='pos-login'),
     path('auth/refresh/', views.pos_refresh, name='pos-refresh'),
     path('auth/logout/', views.pos_logout, name='pos-logout'),
+    path('branches/', views.pos_branches, name='pos-branches'),
     
     # Product-related endpoints
     path('', include(router.urls)),

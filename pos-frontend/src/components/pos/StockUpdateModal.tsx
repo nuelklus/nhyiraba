@@ -10,19 +10,25 @@ interface StockUpdateModalProps {
   product: Product;
   onUpdate: (productId: string, newQuantity: number, changeAmount: number) => void;
   onClose: () => void;
+  onProductUpdated?: () => void | Promise<void>;
+  branchName?: string;
 }
 
-export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModalProps) {
+export function StockUpdateModal({ product, onUpdate, onClose, onProductUpdated, branchName }: StockUpdateModalProps) {
   const [newQuantity, setNewQuantity] = useState(Number(product.stock_quantity));
   const [adjustment, setAdjustment] = useState(0);
   const [updateReason, setUpdateReason] = useState('');
   const [expiryDate, setExpiryDate] = useState(product.expiry_date || '');
+  const [sellingPrice, setSellingPrice] = useState(product.price);
+  const [costPrice, setCostPrice] = useState(product.cost_price ?? '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   const changeAmount = newQuantity - product.stock_quantity;
   const hasExpiryDateChanged = expiryDate !== (product.expiry_date || '');
-  const hasChanges = changeAmount !== 0 || hasExpiryDateChanged;
+  const hasSellingPriceChanged = sellingPrice !== product.price;
+  const hasCostPriceChanged = costPrice !== (product.cost_price ?? '');
+  const hasChanges = changeAmount !== 0 || hasExpiryDateChanged || hasSellingPriceChanged || hasCostPriceChanged;
 
   const handleQuantityChange = (delta: number) => {
     const newQty = Math.max(0, newQuantity + delta);
@@ -39,6 +45,14 @@ export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModa
 
   const handleSubmit = async () => {
     setError('');
+    if (hasSellingPriceChanged) {
+      const parsedSellingPrice = Number(sellingPrice);
+      if (sellingPrice.trim() === '' || !Number.isFinite(parsedSellingPrice) || parsedSellingPrice < 0) {
+        setError('Enter a valid selling price of zero or more.');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       // Update stock if changed
@@ -46,9 +60,15 @@ export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModa
         await onUpdate(product.id, newQuantity, changeAmount);
       }
       
-      // Update expiry date if changed
-      if (expiryDate !== (product.expiry_date || '')) {
-        await posApiClient.updateProduct(product.id, { expiry_date: expiryDate || null });
+      if (hasExpiryDateChanged || hasSellingPriceChanged || hasCostPriceChanged) {
+        const updates: { expiry_date?: string | null; price?: string; cost_price?: string | null; store_id: string } = {
+          store_id: posApiClient.getStoreId(),
+        };
+        if (hasExpiryDateChanged) updates.expiry_date = expiryDate || null;
+        if (hasSellingPriceChanged) updates.price = sellingPrice.trim();
+        if (hasCostPriceChanged) updates.cost_price = costPrice.trim() || null;
+        await posApiClient.updateProduct(product.id, updates);
+        await onProductUpdated?.();
       }
       
       onClose();
@@ -104,6 +124,7 @@ export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModa
               <p className="text-sm text-gray-500">SKU: {product.sku}</p>
               <p className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(product.price)}</p>
             </div>
+            {branchName && <p className="mt-3 text-sm font-semibold text-blue-800">Updating stock for: {branchName}</p>}
           </div>
         </div>
 
@@ -215,6 +236,39 @@ export function StockUpdateModal({ product, onUpdate, onClose }: StockUpdateModa
               </div>
             </div>
           )}
+
+          {/* Selling Price */}
+          <div className="mb-6">
+            <label className="mb-2 block text-sm font-medium text-gray-700">
+              Selling Price per {product.base_unit} (GHS)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={sellingPrice}
+              onChange={(event) => setSellingPrice(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+          </div>
+
+          {/* Cost Price */}
+          <div className="mb-6">
+            <label className="mb-2 block text-sm font-medium text-gray-700">
+              Cost Price per {product.base_unit} (GHS)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={costPrice}
+              onChange={(event) => setCostPrice(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Optional"
+            />
+            <p className="mt-1 text-xs text-gray-500">Cost price is shared across branches; stock quantity remains branch-specific.</p>
+          </div>
 
           {/* Update Reason */}
           <div className="mb-6">
